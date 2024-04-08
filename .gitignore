@@ -11,6 +11,9 @@
 *.gch
 *.pch
 
+# Build folder
+build/
+
 # Compiled Dynamic libraries
 *.so
 *.dylib
