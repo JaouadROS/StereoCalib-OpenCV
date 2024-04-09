@@ -2,89 +2,62 @@
 #include <opencv2/calib3d/calib3d.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/aruco.hpp>
 #include <stdio.h>
 #include <iostream>
+#include <vector>
 
 // Defining the dimensions of checkerboard
 int CHECKERBOARD[2]{6,9}; 
 
 int main()
 {
-    // Creating vector to store vectors of 3D points for each checkerboard image
-    std::vector<std::vector<cv::Point3f> > objpoints;
+    // Define your ArUco dictionary here (DICT_APRILTAG_36h11 is an example)
+    cv::Ptr<cv::aruco::Dictionary> arucoDict = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_APRILTAG_36h11);
+    cv::Ptr<cv::aruco::DetectorParameters> arucoParams = cv::aruco::DetectorParameters::create();
+    arucoParams->markerBorderBits = 2;
 
-    // Creating vector to store vectors of 2D points for each checkerboard image
-    std::vector<std::vector<cv::Point2f> > imgpointsL, imgpointsR;
-
-    // Defining the world coordinates for 3D points
-    std::vector<cv::Point3f> objp;
-    for(int i{0}; i<CHECKERBOARD[1]; i++)
-    {
-    for(int j{0}; j<CHECKERBOARD[0]; j++)
-        objp.push_back(cv::Point3f(j,i,0));
-    }
+    // Storage for 3D points and 2D corner points
+    std::vector<std::vector<cv::Point3f>> objpoints;
+    std::vector<std::vector<cv::Point2f>> imgpointsL, imgpointsR;
 
     // Extracting path of individual image stored in a given directory
     std::vector<cv::String> imagesL, imagesR;
-    // Path of the folder containing checkerboard images
     std::string pathL = "../data/stereoL/*.png";
     std::string pathR = "../data/stereoR/*.png";
 
     cv::glob(pathL, imagesL);
     cv::glob(pathR, imagesR);
 
-    cv::Mat frameL, frameR, grayL, grayR;
-    // vector to store the pixel coordinates of detected checker board corners 
-    std::vector<cv::Point2f> corner_ptsL, corner_ptsR;
-    bool successL, successR;
+    cv::Mat grayL, grayR;
+    for (size_t i = 0; i < imagesL.size(); i++) {
+        cv::Mat frameL = cv::imread(imagesL[i]);
+        cv::Mat frameR = cv::imread(imagesR[i]);
 
-    // Looping over all the images in the directory
-    for(int i{0}; i<imagesL.size(); i++)
-    {
-        frameL = cv::imread(imagesL[i]);
-        cv::cvtColor(frameL,grayL,cv::COLOR_BGR2GRAY);
+        cv::cvtColor(frameL, grayL, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(frameR, grayR, cv::COLOR_BGR2GRAY);
 
-        frameR = cv::imread(imagesR[i]);
-        cv::cvtColor(frameR,grayR,cv::COLOR_BGR2GRAY);
+        std::vector<int> idsL, idsR;
+        std::vector<std::vector<cv::Point2f>> cornersL, cornersR;
 
-        // Finding checker board corners
-        // If desired number of corners are found in the image then success = true  
-        successL = cv::findChessboardCorners(
-            grayL,
-            cv::Size(CHECKERBOARD[0],CHECKERBOARD[1]),
-            corner_ptsL);
-            // cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FAST_CHECK | cv::CALIB_CB_NORMALIZE_IMAGE);
+        // Detect ArUco markers in the left and right images
+        cv::aruco::detectMarkers(grayL, arucoDict, cornersL, idsL, arucoParams);
+        cv::aruco::detectMarkers(grayR, arucoDict, cornersR, idsR, arucoParams);
 
-        successR = cv::findChessboardCorners(
-            grayR,
-            cv::Size(CHECKERBOARD[0],CHECKERBOARD[1]),
-            corner_ptsR);
-            // cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FAST_CHECK | cv::CALIB_CB_NORMALIZE_IMAGE);
-        /*
-            * If desired number of corner are detected,
-            * we refine the pixel coordinates and display 
-            * them on the images of checker board
-        */
-        if((successL) && (successR))
-        {
-            cv::TermCriteria criteria(cv::TermCriteria::EPS | cv::TermCriteria::MAX_ITER, 30, 0.001);
+        // If markers are found in both images
+        if (!idsL.empty() && !idsR.empty()) {
+            // Example (pseudo-code, adapt based on your setup):
+            // for each detected marker ID in idsL and idsR, find its corresponding 3D position,
+            // and add to objpoints. Similarly, add detected 2D corners to imgpointsL and imgpointsR.
 
-            // refining pixel coordinates for given 2d points.
-            cv::cornerSubPix(grayL,corner_ptsL,cv::Size(11,11), cv::Size(-1,-1),criteria);
-            cv::cornerSubPix(grayR,corner_ptsR,cv::Size(11,11), cv::Size(-1,-1),criteria);
-
-            // Displaying the detected corner points on the checker board
-            cv::drawChessboardCorners(frameL, cv::Size(CHECKERBOARD[0],CHECKERBOARD[1]), corner_ptsL,successL);
-            cv::drawChessboardCorners(frameR, cv::Size(CHECKERBOARD[0],CHECKERBOARD[1]), corner_ptsR,successR);
-
-            objpoints.push_back(objp);
-            imgpointsL.push_back(corner_ptsL);
-            imgpointsR.push_back(corner_ptsR);
+            // Draw detected markers on the left and right images
+            cv::aruco::drawDetectedMarkers(frameL, cornersL, idsL);
+            cv::aruco::drawDetectedMarkers(frameR, cornersR, idsR);
         }
 
-        cv::imshow("ImageL",frameL);
-        cv::imshow("ImageR",frameR);
-        cv::waitKey(10);
+        cv::imshow("ImageL", frameL);
+        cv::imshow("ImageR", frameR);
+        cv::waitKey(0);
     }
 
     cv::destroyAllWindows();
