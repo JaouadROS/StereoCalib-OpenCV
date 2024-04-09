@@ -4,62 +4,100 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <stdio.h>
 #include <iostream>
+#include <StereoCalib-OpenCV/demo.hpp>
 
-// Defining the dimensions of checkerboard
-int CHECKERBOARD[2]{6,9}; 
+// Parameters for the board layout
+const int tagsPerRow = 6;
+const int tagsPerCol = 6;
+const float tagSize = 0.05f; // eg. tag is 5cm x 5cm
+const float tagSpacing = 0.005f; // eg. 0.5cm gap between tags
 
-int main()
+int main(int argc, char* argv[])
 {
-    // Creating vector to store vectors of 3D points for each checkerboard image
-    std::vector<std::vector<cv::Point3f> > objpoints;
-
-    // Creating vector to store vectors of 2D points for each checkerboard image
-    std::vector<std::vector<cv::Point2f> > imgpointsL, imgpointsR;
-
     // Defining the world coordinates for 3D points
     std::vector<cv::Point3f> objp;
-    for(int i{0}; i<CHECKERBOARD[1]; i++)
-    {
-    for(int j{0}; j<CHECKERBOARD[0]; j++)
-        objp.push_back(cv::Point3f(j,i,0));
+
+    objp.reserve(tagsPerRow * tagsPerCol * 4); // 4 corners per tag
+    for (int i = 0; i < tagsPerCol; ++i) { // For each row
+        for (int j = 0; j < tagsPerRow; ++j) { // For each column
+            // Calculate the base position of this tag
+            float xBase = j * (tagSize + tagSpacing);
+            float yBase = i * (tagSize + tagSpacing);
+
+            // Top-left corner
+            objp.emplace_back(cv::Point3f(xBase, yBase, 0.0f));
+            // Top-right corner
+            objp.emplace_back(cv::Point3f(xBase + tagSize, yBase, 0.0f));
+            // Bottom-right corner
+            objp.emplace_back(cv::Point3f(xBase + tagSize, yBase + tagSize, 0.0f));
+            // Bottom-left corner
+            objp.emplace_back(cv::Point3f(xBase, yBase + tagSize, 0.0f));
+        }
     }
+    std::cout<<"objp size: "<<objp.size()<<std::endl;
+
+    // AprilTags demo object setup
+    Demo demo;
+    demo.parseOptions(argc, argv);
+    demo.setup();
+
+    // Creating vector to store vectors of 3D points for each aprilboard image
+    std::vector<std::vector<cv::Point3f> > objpoints;
+
+    // Creating vector to store vectors of 2D points for each aprilboard image
+    std::vector<std::vector<cv::Point2f> > imgpointsL, imgpointsR;
 
     // Extracting path of individual image stored in a given directory
     std::vector<cv::String> imagesL, imagesR;
-    // Path of the folder containing checkerboard images
-    std::string pathL = "../data/stereoL/*.png";
-    std::string pathR = "../data/stereoR/*.png";
+
+    // Path of the folder containing aprilboard images
+    std::string pathL = argv[1]; 
+    std::string pathR = argv[2];
+
+    std::cout<<"pathL: "<<pathL<<std::endl;
+    std::cout<<"pathR: "<<pathR<<std::endl;
 
     cv::glob(pathL, imagesL);
     cv::glob(pathR, imagesR);
 
     cv::Mat frameL, frameR, grayL, grayR;
-    // vector to store the pixel coordinates of detected checker board corners 
-    std::vector<cv::Point2f> corner_ptsL, corner_ptsR;
-    bool successL, successR;
-
     // Looping over all the images in the directory
     for(int i{0}; i<imagesL.size(); i++)
     {
+        // vector to store the pixel coordinates of detected checker board corners 
+        std::vector<cv::Point2f> corner_ptsL, corner_ptsR;
+        bool successL, successR;
+
         frameL = cv::imread(imagesL[i]);
         cv::cvtColor(frameL,grayL,cv::COLOR_BGR2GRAY);
 
         frameR = cv::imread(imagesR[i]);
         cv::cvtColor(frameR,grayR,cv::COLOR_BGR2GRAY);
 
-        // Finding checker board corners
+        // Finding tags corners
         // If desired number of corners are found in the image then success = true  
-        successL = cv::findChessboardCorners(
-            grayL,
-            cv::Size(CHECKERBOARD[0],CHECKERBOARD[1]),
-            corner_ptsL);
-            // cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FAST_CHECK | cv::CALIB_CB_NORMALIZE_IMAGE);
+        vector<AprilTags::TagDetection> detectionsL = demo.extractTags(grayL);
+        successL = detectionsL.size() == tagsPerRow * tagsPerCol;
+        for (int i=0; i<detectionsL.size(); i++) {
+            detectionsL[i].draw(frameL);
+        }
+        for(const auto& detection : detectionsL) {
+            for(int cornerIndex = 0; cornerIndex < 4; cornerIndex++) {
+                corner_ptsL.push_back(cv::Point2f(detection.p[cornerIndex].first, detection.p[cornerIndex].second));
+            }
+        }
 
-        successR = cv::findChessboardCorners(
-            grayR,
-            cv::Size(CHECKERBOARD[0],CHECKERBOARD[1]),
-            corner_ptsR);
-            // cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FAST_CHECK | cv::CALIB_CB_NORMALIZE_IMAGE);
+        vector<AprilTags::TagDetection> detectionsR = demo.extractTags(grayR);
+        successR = detectionsR.size() == tagsPerRow * tagsPerCol;
+        for(int i=0; i<detectionsR.size(); i++) {
+            detectionsR[i].draw(frameR);
+        }
+        for(const auto& detection : detectionsR) {
+            for(int cornerIndex = 0; cornerIndex < 4; cornerIndex++) {
+                corner_ptsR.push_back(cv::Point2f(detection.p[cornerIndex].first, detection.p[cornerIndex].second));
+            }
+        }
+
         /*
             * If desired number of corner are detected,
             * we refine the pixel coordinates and display 
@@ -72,10 +110,6 @@ int main()
             // refining pixel coordinates for given 2d points.
             cv::cornerSubPix(grayL,corner_ptsL,cv::Size(11,11), cv::Size(-1,-1),criteria);
             cv::cornerSubPix(grayR,corner_ptsR,cv::Size(11,11), cv::Size(-1,-1),criteria);
-
-            // Displaying the detected corner points on the checker board
-            cv::drawChessboardCorners(frameL, cv::Size(CHECKERBOARD[0],CHECKERBOARD[1]), corner_ptsL,successL);
-            cv::drawChessboardCorners(frameR, cv::Size(CHECKERBOARD[0],CHECKERBOARD[1]), corner_ptsR,successR);
 
             objpoints.push_back(objp);
             imgpointsL.push_back(corner_ptsL);
